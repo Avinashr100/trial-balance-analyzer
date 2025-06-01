@@ -1,13 +1,13 @@
-import pandas as pd
-import numpy as np
-
-def format_inr(x):
-    try:
-        return f"₹{int(x):,}"
-    except:
-        return ""
-
 def compute_cash_flow_statement(df, current_period, previous_period, is_annual=False):
+    import pandas as pd
+    import numpy as np
+
+    def format_inr(x):
+        try:
+            return f"₹{int(x):,}"
+        except:
+            return ""
+
     if is_annual:
         df["Period"] = df["Date"].dt.year
         label_current = str(current_period)
@@ -55,9 +55,15 @@ def compute_cash_flow_statement(df, current_period, previous_period, is_annual=F
         ])
         return rows, total_curr, total_prev
 
-    # Net Income
-    income_curr = current[current["Account Type"] == "Revenue"].Debit.sum() - current[current["Account Type"] == "Expense"].Debit.sum()
-    income_prev = previous[previous["Account Type"] == "Revenue"].Debit.sum() - previous[previous["Account Type"] == "Expense"].Debit.sum()
+    # ✅ Correct Net Income: Revenue (Credit) - Expenses (Debit)
+    def calculate_net_income(df_period):
+        revenue = df_period[df_period["Account Type"] == "Revenue"]["Credit"].sum()
+        expense = df_period[df_period["Account Type"] == "Expense"]["Debit"].sum()
+        return revenue - expense
+
+    income_curr = calculate_net_income(current)
+    income_prev = calculate_net_income(previous)
+
     net_income_row = [[
         "Net Income",
         format_inr(income_curr),
@@ -66,7 +72,7 @@ def compute_cash_flow_statement(df, current_period, previous_period, is_annual=F
         f"{((income_curr - income_prev) / income_prev * 100):.1f}%" if income_prev else ""
     ]]
 
-    # Cash Flow Sections
+    # Cash Flow Sections (excluding Net Income)
     ops_rows, ops_curr, ops_prev = add_rows("Operating Activities",
                                             get_group(current, "Cash Flow Operating"),
                                             get_group(previous, "Cash Flow Operating"))
@@ -90,16 +96,20 @@ def compute_cash_flow_statement(df, current_period, previous_period, is_annual=F
         f"{net_pct:.1f}%"
     ]]
 
-    # --- New Dynamic Beginning and Ending Cash Logic ---
+    # Beginning and Ending Cash Calculation
     def get_cash_balance(df_period):
-        cash_row = df_period[(df_period["Account Name"] == "Cash at Bank")]
+        cash_row = df_period[df_period["Account Name"] == "Cash at Bank"]
         debit = cash_row["Debit"].sum()
         credit = cash_row["Credit"].sum()
         return debit - credit
 
     begin_cash_curr = get_cash_balance(previous)
-    begin_cash_prev = get_cash_balance(df[df["Period"] == (previous_period - 1 if not is_annual else previous_period - 1)])
+    if is_annual:
+        prior_period = previous_period - 1
+    else:
+        prior_period = previous_period - 1
 
+    begin_cash_prev = get_cash_balance(df[df["Period"] == prior_period])
     end_cash_curr = begin_cash_curr + net_activities_curr
     end_cash_prev = begin_cash_prev + net_activities_prev
 
