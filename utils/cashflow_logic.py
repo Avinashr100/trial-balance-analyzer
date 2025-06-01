@@ -7,7 +7,7 @@ def format_inr(x):
     except:
         return "₹0"
 
-def compute_cash_flow_statement(df, current_period, previous_period, income_curr=None, income_prev=None, is_annual=False):
+def compute_cash_flow_statement(df, current_period, previous_period, is_annual=False):
     if is_annual:
         df["Period"] = df["Date"].dt.year
         label_current = str(current_period)
@@ -20,10 +20,86 @@ def compute_cash_flow_statement(df, current_period, previous_period, income_curr
     current = df[df["Period"] == current_period]
     previous = df[df["Period"] == previous_period]
 
+    # ----- Income Statement Calculation -----
+    def calc_net_income(period_df):
+        revenue = period_df[period_df["Account Type"] == "Revenue"]["Credit"].sum()
+        expenses = period_df[period_df["Account Type"] == "Expense"]["Debit"].sum()
+        return revenue - expenses
+
+    income_curr = calc_net_income(current)
+    income_prev = calc_net_income(previous)
+
+    # ----- Income Statement Table -----
+    def generate_income_statement():
+        rows = []
+        totals = {}
+
+        for section in ["Revenue", "Expense"]:
+            rows.append([f"<b>{section}</b>", "", "", "", ""])
+            curr_section = current[current["Account Type"] == section]
+            prev_section = previous[previous["Account Type"] == section]
+            account_names = sorted(set(curr_section["Account Name"]) | set(prev_section["Account Name"]))
+            total_curr = total_prev = 0
+
+            for name in account_names:
+                curr_val = curr_section[curr_section["Account Name"] == name]
+                prev_val = prev_section[prev_section["Account Name"] == name]
+                curr_amt = curr_val["Credit"].sum() if section == "Revenue" else -curr_val["Debit"].sum()
+                prev_amt = prev_val["Credit"].sum() if section == "Revenue" else -prev_val["Debit"].sum()
+                chg = curr_amt - prev_amt
+                pct = (chg / prev_amt * 100) if prev_amt else 0
+
+                rows.append([
+                    name,
+                    format_inr(curr_amt),
+                    format_inr(prev_amt),
+                    format_inr(chg),
+                    f"{pct:.1f}%"
+                ])
+                total_curr += curr_amt
+                total_prev += prev_amt
+
+            totals[section] = (total_curr, total_prev)
+            chg_total = total_curr - total_prev
+            pct_total = (chg_total / total_prev * 100) if total_prev else 0
+            rows.append([
+                f"<b>Total {section}</b>",
+                f"<b>{format_inr(total_curr)}</b>",
+                f"<b>{format_inr(total_prev)}</b>",
+                f"<b>{format_inr(chg_total)}</b>",
+                f"<b>{pct_total:.1f}%</b>"
+            ])
+
+        net_curr = totals["Revenue"][0] - totals["Expense"][0]
+        net_prev = totals["Revenue"][1] - totals["Expense"][1]
+        chg_net = net_curr - net_prev
+        pct_net = (chg_net / net_prev * 100) if net_prev else 0
+
+        rows.append([
+            "<b>Net Income</b>",
+            f"<b>{format_inr(net_curr)}</b>",
+            f"<b>{format_inr(net_prev)}</b>",
+            f"<b>{format_inr(chg_net)}</b>",
+            f"<b>{pct_net:.1f}%</b>"
+        ])
+        return pd.DataFrame(rows, columns=[
+            "Account Name",
+            f"Amount ({label_current})",
+            f"Amount ({label_previous})",
+            "₹ Change",
+            "% Change"
+        ]), net_curr, net_prev
+
+    # Generate Income Statement
+    income_statement_df, income_curr, income_prev = generate_income_statement()
+
+    # ----- Cash Flow Sections -----
     def get_group(period_df, cash_type):
-        filtered = period_df[(period_df["Account Type"] == cash_type) & (period_df["Account Name"] != "Net Income")]
         return (
-            filtered
+            period_df[
+                (period_df["Account Type"] == cash_type) &
+                (~period_df["Account Name"].str.contains("Net Income", case=False, na=False))
+            ]
             .groupby("Account Name")
             .agg({"Debit": "sum", "Credit": "sum"})
             .apply(lambda row: row["Debit"] - row["Credit"], axis=1)
@@ -33,11 +109,13 @@ def compute_cash_flow_statement(df, current_period, previous_period, income_curr
         rows = [[f"<b>{title}</b>", "", "", "", ""]]
         total_curr = group_curr.sum()
         total_prev = group_prev.sum()
-        for acc in sorted(set(group_curr.index).union(group_prev.index)):
+        all_accounts = sorted(set(group_curr.index) | set(group_prev.index))
+
+        for acc in all_accounts:
             val_curr = group_curr.get(acc, 0)
             val_prev = group_prev.get(acc, 0)
             chg = val_curr - val_prev
-            pct = (chg / val_prev * 100) if val_prev != 0 else 0
+            pct = (chg / val_prev * 100) if val_prev else 0
             rows.append([
                 acc,
                 format_inr(val_curr),
@@ -45,8 +123,9 @@ def compute_cash_flow_statement(df, current_period, previous_period, income_curr
                 format_inr(chg),
                 f"{pct:.1f}%"
             ])
+
         chg_total = total_curr - total_prev
-        pct_total = (chg_total / total_prev * 100) if total_prev != 0 else 0
+        pct_total = (chg_total / total_prev * 100) if total_prev else 0
         rows.append([
             f"<b>Total {title}</b>",
             f"<b>{format_inr(total_curr)}</b>",
@@ -108,12 +187,12 @@ def compute_cash_flow_statement(df, current_period, previous_period, income_curr
          f"{((end_cash_curr - end_cash_prev)/end_cash_prev*100):.1f}%" if end_cash_prev else ""]
     ]
 
-    full_table = net_income_row + ops_rows + inv_rows + fin_rows + net_row + end_rows
-
-    return pd.DataFrame(full_table, columns=[
+    cash_flow_df = pd.DataFrame(net_income_row + ops_rows + inv_rows + fin_rows + net_row + end_rows, columns=[
         "Account Name",
         f"Amount ({label_current})",
         f"Amount ({label_previous})",
         "₹ Change",
         "% Change"
     ])
+
+    return income_statement_df, cash_flow_df
