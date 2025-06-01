@@ -1,42 +1,99 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-from streamlit.components.v1 import html
 from utils.cashflow_logic import compute_cash_flow_statement
+from streamlit.components.v1 import html
+import os
 
-st.set_page_config(page_title="📘 Yearly Summary", layout="wide")
-st.markdown("## 📘 Yearly Summary")
+st.set_page_config(page_title="📘 Yearly Financial Summary", layout="wide")
+st.markdown("## 📘 Yearly Financial Summary")
 
-# Load Data
 DATA_FILE = "trial_balance_cashflow.xlsx"
-try:
-    df = pd.read_excel(DATA_FILE, parse_dates=["Date"])
-except FileNotFoundError:
-    st.error(f"'{DATA_FILE}' not found.")
+if not os.path.exists(DATA_FILE):
+    st.error(f"❌ '{DATA_FILE}' not found in repo.")
     st.stop()
 
+df = pd.read_excel(DATA_FILE, parse_dates=["Date"])
 df["Year"] = df["Date"].dt.year
 
-# Sidebar year selection
+category_map = {
+    "Asset": "Assets",
+    "Liability": "Liabilities",
+    "Equity": "Equity",
+    "Revenue": "Revenue",
+    "Expense": "Expenses",
+    "Cash Flow Operating": "Operating Activities",
+    "Cash Flow Investing": "Investing Activities",
+    "Cash Flow Financing": "Financing Activities"
+}
+df["Account Category"] = df["Account Type"].map(category_map)
+
 years = sorted(df["Year"].unique())
-st.sidebar.header("🗓️ Select Years")
+st.sidebar.header("📅 Select Years")
 current_year = st.sidebar.selectbox("Current Year", years[::-1])
 previous_year = st.sidebar.selectbox("Previous Year", [y for y in years if y < current_year][::-1])
 
-label_current = str(current_year)
-label_previous = str(previous_year)
-
-# ---------- Helper Functions ----------
 def format_inr(x):
     try:
         return f"₹{int(x):,}"
     except:
         return ""
 
+# BALANCE SHEET
+def generate_balance_sheet(df, section_order):
+    df_curr = df[df["Year"] == current_year]
+    df_prev = df[df["Year"] == previous_year]
+
+    curr = df_curr.groupby(["Account Category", "Account Name"]).agg({"Debit": "sum", "Credit": "sum"}).reset_index()
+    curr["Current"] = curr["Debit"] - curr["Credit"]
+
+    prev = df_prev.groupby(["Account Category", "Account Name"]).agg({"Debit": "sum", "Credit": "sum"}).reset_index()
+    prev["Previous"] = prev["Debit"] - prev["Credit"]
+
+    merged = pd.merge(curr[["Account Category", "Account Name", "Current"]],
+                      prev[["Account Category", "Account Name", "Previous"]],
+                      on=["Account Category", "Account Name"], how="outer").fillna(0)
+    merged["₹ Change"] = merged["Current"] - merged["Previous"]
+    merged["% Change"] = np.where(merged["Previous"] != 0,
+                                   merged["₹ Change"] / merged["Previous"] * 100, 0)
+
+    rows = []
+    for section in section_order:
+        section_df = merged[merged["Account Category"] == section]
+        if section_df.empty:
+            continue
+
+        rows.append([f"<b>{section}</b>", "", "", "", ""])
+        total_current = total_previous = 0
+
+        for _, row in section_df.iterrows():
+            rows.append([
+                row["Account Name"],
+                format_inr(row["Current"]),
+                format_inr(row["Previous"]),
+                format_inr(row["₹ Change"]),
+                f"{row['% Change']:.1f}%"
+            ])
+            total_current += row["Current"]
+            total_previous += row["Previous"]
+
+        rows.append([
+            f"<b>Total {section}</b>",
+            f"<b>{format_inr(total_current)}</b>",
+            f"<b>{format_inr(total_previous)}</b>",
+            f"<b>{format_inr(total_current - total_previous)}</b>",
+            f"<b>{(total_current - total_previous)/total_previous*100:.1f}%</b>" if total_previous else ""
+        ])
+
+    return pd.DataFrame(rows, columns=["Account Name",
+                                       f"Amount ({current_year})",
+                                       f"Amount ({previous_year})",
+                                       "₹ Change", "% Change"])
+
 def render_statement(title, df_table):
     st.markdown(f"<h4 style='text-align:center'>{title}</h4>", unsafe_allow_html=True)
     html_table = df_table.to_html(escape=False, index=False)
-    styled = f"""
+    styled = f'''
     <style>
         table {{
             width: 100%;
@@ -62,12 +119,42 @@ def render_statement(title, df_table):
         tbody tr:nth-child(odd) {{background-color: white;}}
     </style>
     {html_table}
-    """
-    html(styled, height=800, scrolling=True)
+    '''
+    html(styled, height=700, scrolling=True)
 
-# ---------- Compute Statements ----------
+# ---------------- DISPLAY ----------------
+balance_df = generate_balance_sheet(df, ["Assets", "Liabilities", "Equity"])
+render_statement("Balance Sheet", balance_df)
+
 income_df, cashflow_df = compute_cash_flow_statement(df, current_year, previous_year, is_annual=True)
-
-# ---------- Render Statements ----------
 render_statement("Income Statement", income_df)
-render_statement("Cash Flow Statement", cashflow_df)
+st.markdown("### Cash Flow Statement")
+cf_html = cashflow_df.to_html(escape=False, index=False)
+cf_style = f"""
+<style>
+    table {{
+        width: 100%;
+        border-collapse: collapse;
+        font-family: sans-serif;
+    }}
+    th {{
+        background-color: #003366;
+        color: white;
+        padding: 8px;
+        text-align: center;
+    }}
+    td {{
+        padding: 8px;
+    }}
+    td:first-child {{
+        text-align: left;
+    }}
+    td:not(:first-child) {{
+        text-align: center;
+    }}
+    tbody tr:nth-child(even) {{background-color: #f0f8ff;}}
+    tbody tr:nth-child(odd) {{background-color: white;}}
+</style>
+{cf_html}
+"""
+html(cf_style, height=1500, scrolling=True)
