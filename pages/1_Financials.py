@@ -14,6 +14,7 @@ if not os.path.exists(DATA_FILE):
     st.error(f"❌ '{DATA_FILE}' not found in repo.")
     st.stop()
 
+# Read data
 df = pd.read_excel(DATA_FILE, parse_dates=["Date"])
 df["Month"] = df["Date"].dt.to_period("M")
 df["Month Name"] = df["Date"].dt.strftime("%B %Y")
@@ -167,16 +168,14 @@ def generate_income_statement(df, month_col):
         f"<b>{pct:.1f}%</b>"
     ])
 
-    df_income = pd.DataFrame(rows, columns=["Account Name",
-                                            f"Amount ({month_label_current})",
-                                            f"Amount ({month_label_previous})",
-                                            "₹ Change", "% Change"])
-    return df_income, net_curr, net_prev
+    return pd.DataFrame(rows, columns=["Account Name",
+                                       f"Amount ({month_label_current})",
+                                       f"Amount ({month_label_previous})",
+                                       "₹ Change", "% Change"]), net_curr, net_prev
 
 # ---------------- RENDER TABLE ----------------
 def render_statement(title, df_table):
     st.markdown(f"<h4 style='text-align:center'>{title}</h4>", unsafe_allow_html=True)
-
     html_table = df_table.to_html(escape=False, index=False)
     styled = f"""
     <style>
@@ -209,12 +208,13 @@ def render_statement(title, df_table):
 
 # ---------------- DISPLAY SECTIONS ----------------
 render_statement("Balance Sheet", generate_balance_statement(df, "Month", ["Assets", "Liabilities", "Equity"]))
-income_df, net_income_curr, net_income_prev = generate_income_statement(df, "Month")
+
+income_df, net_income_current, net_income_previous = generate_income_statement(df, "Month")
 render_statement("Income Statement", income_df)
 
 # ---------------- CASH FLOW ----------------
 st.markdown("### Cash Flow Statement")
-cf_df = compute_cash_flow_statement(df, current_month, previous_month, income_curr=net_income_curr, income_prev=net_income_prev, is_annual=False)
+cf_df = compute_cash_flow_statement(df, current_month, previous_month, income_curr=net_income_current, income_prev=net_income_previous, is_annual=False)
 cf_html = cf_df.to_html(escape=False, index=False)
 cf_style = f"""
 <style>
