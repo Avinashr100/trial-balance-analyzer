@@ -1,162 +1,128 @@
-import streamlit as st
 import pandas as pd
 import numpy as np
-import os
-from streamlit.components.v1 import html
-from utils.cashflow_logic import compute_cash_flow_statement
-
-st.set_page_config(page_title="📘 Yearly Financial Summary", layout="wide")
-st.markdown("## 📘 Yearly Financial Summary")
-
-DATA_FILE = "trial_balance_cashflow.xlsx"
-if not os.path.exists(DATA_FILE):
-    st.error(f"❌ '{DATA_FILE}' not found in repo.")
-    st.stop()
-
-df = pd.read_excel(DATA_FILE, parse_dates=["Date"])
-df["Year"] = df["Date"].dt.year
-
-# Map to categories
-category_map = {
-    "Asset": "Assets",
-    "Liability": "Liabilities",
-    "Equity": "Equity",
-    "Revenue": "Revenue",
-    "Expense": "Expenses",
-    "Cash Flow Operating": "Operating Activities",
-    "Cash Flow Investing": "Investing Activities",
-    "Cash Flow Financing": "Financing Activities"
-}
-df["Account Category"] = df["Account Type"].map(category_map)
-
-years = sorted(df["Year"].unique())
-st.sidebar.header("📅 Select Years")
-current_year = st.sidebar.selectbox("Current Year", years[::-1])
-previous_year = st.sidebar.selectbox("Previous Year", [y for y in years if y < current_year][::-1])
 
 def format_inr(x):
     try:
         return f"₹{int(x):,}"
     except:
-        return ""
+        return "₹0"
 
-def generate_annual_statement(df, year_col, section_order):
-    df_curr = df[df[year_col] == current_year]
-    df_prev = df[df[year_col] == previous_year]
+def compute_cash_flow_statement(df, current_period, previous_period, is_annual=False):
+    if is_annual:
+        df["Period"] = df["Date"].dt.year
+        label_current = str(current_period)
+        label_previous = str(previous_period)
+    else:
+        df["Period"] = df["Date"].dt.to_period("M")
+        label_current = pd.Timestamp(current_period.start_time).strftime('%b %Y')
+        label_previous = pd.Timestamp(previous_period.start_time).strftime('%b %Y')
 
-    curr = df_curr.groupby(["Account Category", "Account Name"]).agg({"Debit": "sum", "Credit": "sum"}).reset_index()
-    curr["Current"] = curr["Debit"] - curr["Credit"]
+    current = df[df["Period"] == current_period]
+    previous = df[df["Period"] == previous_period]
 
-    prev = df_prev.groupby(["Account Category", "Account Name"]).agg({"Debit": "sum", "Credit": "sum"}).reset_index()
-    prev["Previous"] = prev["Debit"] - prev["Credit"]
+    # --- Calculate Net Income from Income Statement Logic ---
+    def calc_net_income(period_df):
+        revenue = period_df[period_df["Account Type"] == "Revenue"]["Credit"].sum()
+        expenses = period_df[period_df["Account Type"] == "Expense"]["Debit"].sum()
+        return revenue - expenses
 
-    merged = pd.merge(curr[["Account Category", "Account Name", "Current"]],
-                      prev[["Account Category", "Account Name", "Previous"]],
-                      on=["Account Category", "Account Name"], how="outer").fillna(0)
-    merged["₹ Change"] = merged["Current"] - merged["Previous"]
-    merged["% Change"] = np.where(merged["Previous"] != 0,
-                                   merged["₹ Change"] / merged["Previous"] * 100, 0)
+    income_curr = calc_net_income(current)
+    income_prev = calc_net_income(previous)
 
-    rows = []
-    for section in section_order:
-        section_df = merged[merged["Account Category"] == section]
-        if section_df.empty:
-            continue
+    def get_group(period_df, cash_type):
+        filtered = period_df[(period_df["Account Type"] == cash_type) & (period_df["Account Name"] != "Net Income")]
+        grouped = (
+            filtered.groupby("Account Name")
+            .agg({"Debit": "sum", "Credit": "sum"})
+            .apply(lambda row: row["Debit"] - row["Credit"], axis=1)
+        )
+        return grouped
 
-        rows.append([f"<b>{section}</b>", "", "", "", ""])
-        total_current = total_previous = 0
-
-        for _, row in section_df.iterrows():
+    def add_rows(title, group_curr, group_prev):
+        rows = [[f"<b>{title}</b>", "", "", "", ""]]
+        total_curr = group_curr.sum()
+        total_prev = group_prev.sum()
+        for acc in sorted(set(group_curr.index).union(group_prev.index)):
+            val_curr = group_curr.get(acc, 0)
+            val_prev = group_prev.get(acc, 0)
+            chg = val_curr - val_prev
+            pct = (chg / val_prev * 100) if val_prev != 0 else 0
             rows.append([
-                row["Account Name"],
-                format_inr(row["Current"]),
-                format_inr(row["Previous"]),
-                format_inr(row["₹ Change"]),
-                f"{row['% Change']:.1f}%"
+                acc,
+                format_inr(val_curr),
+                format_inr(val_prev),
+                format_inr(chg),
+                f"{pct:.1f}%"
             ])
-            total_current += row["Current"]
-            total_previous += row["Previous"]
-
+        chg_total = total_curr - total_prev
+        pct_total = (chg_total / total_prev * 100) if total_prev != 0 else 0
         rows.append([
-            f"<b>Total {section}</b>",
-            f"<b>{format_inr(total_current)}</b>",
-            f"<b>{format_inr(total_previous)}</b>",
-            f"<b>{format_inr(total_current - total_previous)}</b>",
-            f"<b>{(total_current - total_previous)/total_previous*100:.1f}%</b>" if total_previous else ""
+            f"<b>Total {title}</b>",
+            f"<b>{format_inr(total_curr)}</b>",
+            f"<b>{format_inr(total_prev)}</b>",
+            f"<b>{format_inr(chg_total)}</b>",
+            f"<b>{pct_total:.1f}%</b>"
         ])
+        return rows, total_curr, total_prev
 
-    return pd.DataFrame(rows, columns=["Account Name",
-                                       f"Amount ({current_year})",
-                                       f"Amount ({previous_year})",
-                                       "₹ Change", "% Change"])
+    net_income_row = [[
+        "Net Income",
+        format_inr(income_curr),
+        format_inr(income_prev),
+        format_inr(income_curr - income_prev),
+        f"{((income_curr - income_prev) / income_prev * 100):.1f}%" if income_prev else ""
+    ]]
 
-def render_annual_statement(title, sections):
-    st.markdown(f"<h4 style='text-align:center'>{title}</h4>", unsafe_allow_html=True)
-    df_table = generate_annual_statement(df, "Year", sections)
+    ops_rows, ops_curr, ops_prev = add_rows("Operating Activities",
+                                            get_group(current, "Cash Flow Operating"),
+                                            get_group(previous, "Cash Flow Operating"))
+    inv_rows, inv_curr, inv_prev = add_rows("Investing Activities",
+                                            get_group(current, "Cash Flow Investing"),
+                                            get_group(previous, "Cash Flow Investing"))
+    fin_rows, fin_curr, fin_prev = add_rows("Financing Activities",
+                                            get_group(current, "Cash Flow Financing"),
+                                            get_group(previous, "Cash Flow Financing"))
 
-    html_table = df_table.to_html(escape=False, index=False)
-    styled = f"""
-    <style>
-        table {{
-            width: 100%;
-            border-collapse: collapse;
-            font-family: sans-serif;
-        }}
-        th {{
-            background-color: #003366;
-            color: white;
-            padding: 8px;
-            text-align: center;
-        }}
-        td {{
-            padding: 8px;
-        }}
-        td:first-child {{
-            text-align: left;
-        }}
-        td:not(:first-child) {{
-            text-align: center;
-        }}
-        tbody tr:nth-child(even) {{background-color: #f0f8ff;}}
-        tbody tr:nth-child(odd) {{background-color: white;}}
-    </style>
-    {html_table}
-    """
-    html(styled, height=500, scrolling=True)
+    net_activities_curr = income_curr + ops_curr + inv_curr + fin_curr
+    net_activities_prev = income_prev + ops_prev + inv_prev + fin_prev
+    net_chg = net_activities_curr - net_activities_prev
+    net_pct = (net_chg / net_activities_prev * 100) if net_activities_prev else 0
 
-# ---- Render Statements ----
-render_annual_statement("Balance Sheet", ["Assets", "Liabilities", "Equity"])
-render_annual_statement("Income Statement", ["Revenue", "Expenses"])
+    net_row = [[
+        "Net Activities",
+        format_inr(net_activities_curr),
+        format_inr(net_activities_prev),
+        format_inr(net_chg),
+        f"{net_pct:.1f}%"
+    ]]
 
-# ---- Cash Flow ----
-st.markdown("### Cash Flow Statement")
-cf_df = compute_cash_flow_statement(df, current_year, previous_year, is_annual=True)
-cf_html = cf_df.to_html(escape=False, index=False)
-cf_style = f"""
-<style>
-    table {{
-        width: 100%;
-        border-collapse: collapse;
-        font-family: sans-serif;
-    }}
-    th {{
-        background-color: #003366;
-        color: white;
-        padding: 8px;
-        text-align: center;
-    }}
-    td {{
-        padding: 8px;
-    }}
-    td:first-child {{
-        text-align: left;
-    }}
-    td:not(:first-child) {{
-        text-align: center;
-    }}
-    tbody tr:nth-child(even) {{background-color: #f0f8ff;}}
-    tbody tr:nth-child(odd) {{background-color: white;}}
-</style>
-{cf_html}
-"""
-html(cf_style, height=1500, scrolling=True)
+    def get_cash_balance(df_period):
+        cash_row = df_period[df_period["Account Name"] == "Cash at Bank"]
+        debit = cash_row["Debit"].sum()
+        credit = cash_row["Credit"].sum()
+        return debit - credit
+
+    begin_cash_curr = get_cash_balance(previous)
+    begin_cash_prev = get_cash_balance(df[df["Period"] == (previous_period - 1 if is_annual else previous_period - 1)])
+
+    end_cash_curr = begin_cash_curr + net_activities_curr
+    end_cash_prev = begin_cash_prev + net_activities_prev
+
+    end_rows = [
+        ["Beginning Cash at Bank", format_inr(begin_cash_curr), format_inr(begin_cash_prev),
+         format_inr(begin_cash_curr - begin_cash_prev),
+         f"{((begin_cash_curr - begin_cash_prev)/begin_cash_prev*100):.1f}%" if begin_cash_prev else ""],
+        ["Ending Cash at Bank", format_inr(end_cash_curr), format_inr(end_cash_prev),
+         format_inr(end_cash_curr - end_cash_prev),
+         f"{((end_cash_curr - end_cash_prev)/end_cash_prev*100):.1f}%" if end_cash_prev else ""]
+    ]
+
+    full_table = net_income_row + ops_rows + inv_rows + fin_rows + net_row + end_rows
+
+    return pd.DataFrame(full_table, columns=[
+        "Account Name",
+        f"Amount ({label_current})",
+        f"Amount ({label_previous})",
+        "₹ Change",
+        "% Change"
+    ])
