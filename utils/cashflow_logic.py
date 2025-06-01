@@ -1,4 +1,3 @@
-
 import pandas as pd
 import numpy as np
 
@@ -8,15 +7,27 @@ def format_inr(x):
     except:
         return ""
 
-def compute_cash_flow_statement(df, current_month, previous_month):
-    month_label_current = pd.Timestamp(current_month.start_time).strftime('%B %Y')
-    month_label_previous = pd.Timestamp(previous_month.start_time).strftime('%B %Y')
+def compute_cash_flow_statement(df, current_period, previous_period, is_annual=False):
+    # Label formatting
+    if is_annual:
+        df["Period"] = df["Date"].dt.year
+        label_current = str(current_period)
+        label_previous = str(previous_period)
+    else:
+        df["Period"] = df["Date"].dt.to_period("M")
+        label_current = pd.Timestamp(current_period.start_time).strftime('%B %Y')
+        label_previous = pd.Timestamp(previous_period.start_time).strftime('%B %Y')
 
-    current = df[df["Month"] == current_month]
-    previous = df[df["Month"] == previous_month]
+    current = df[df["Period"] == current_period]
+    previous = df[df["Period"] == previous_period]
 
-    def get_group(month_df, cash_type):
-        return month_df[month_df["Account Type"] == cash_type]             .groupby("Account Name").agg({"Debit": "sum", "Credit": "sum"})             .apply(lambda row: row["Debit"] - row["Credit"], axis=1)
+    def get_group(period_df, cash_type):
+        return (
+            period_df[period_df["Account Type"] == cash_type]
+            .groupby("Account Name")
+            .agg({"Debit": "sum", "Credit": "sum"})
+            .apply(lambda row: row["Debit"] - row["Credit"], axis=1)
+        )
 
     def add_rows(title, group_curr, group_prev):
         rows = [[f"<b>{title}</b>", "", "", "", ""]]
@@ -45,14 +56,16 @@ def compute_cash_flow_statement(df, current_month, previous_month):
         ])
         return rows, total_curr, total_prev
 
-    # Get Net Income
+    # Net Income Calculation
     income_curr = current[current["Account Type"] == "Revenue"].Debit.sum() - current[current["Account Type"] == "Expense"].Debit.sum()
     income_prev = previous[previous["Account Type"] == "Revenue"].Debit.sum() - previous[previous["Account Type"] == "Expense"].Debit.sum()
-    net_income_row = [["Net Income",
-                       format_inr(income_curr),
-                       format_inr(income_prev),
-                       format_inr(income_curr - income_prev),
-                       f"{((income_curr - income_prev) / income_prev * 100):.1f}%" if income_prev else ""]]
+    net_income_row = [[
+        "Net Income",
+        format_inr(income_curr),
+        format_inr(income_prev),
+        format_inr(income_curr - income_prev),
+        f"{((income_curr - income_prev) / income_prev * 100):.1f}%" if income_prev else ""
+    ]]
 
     # Cash Flow Sections
     ops_rows, ops_curr, ops_prev = add_rows("Operating Activities",
@@ -70,11 +83,13 @@ def compute_cash_flow_statement(df, current_month, previous_month):
     net_chg = net_activities_curr - net_activities_prev
     net_pct = (net_chg / net_activities_prev * 100) if net_activities_prev else 0
 
-    net_row = [["Net Activities",
-                format_inr(net_activities_curr),
-                format_inr(net_activities_prev),
-                format_inr(net_chg),
-                f"{net_pct:.1f}%"]]
+    net_row = [[
+        "Net Activities",
+        format_inr(net_activities_curr),
+        format_inr(net_activities_prev),
+        format_inr(net_chg),
+        f"{net_pct:.1f}%"
+    ]]
 
     begin_cash_curr = net_activities_curr + 60000
     begin_cash_prev = net_activities_prev + 60000
@@ -92,7 +107,10 @@ def compute_cash_flow_statement(df, current_month, previous_month):
 
     full_table = net_income_row + ops_rows + inv_rows + fin_rows + net_row + end_rows
 
-    return pd.DataFrame(full_table, columns=["Account Name",
-                                              f"Amount ({month_label_current})",
-                                              f"Amount ({month_label_previous})",
-                                              "₹ Change", "% Change"])
+    return pd.DataFrame(full_table, columns=[
+        "Account Name",
+        f"Amount ({label_current})",
+        f"Amount ({label_previous})",
+        "₹ Change",
+        "% Change"
+    ])
