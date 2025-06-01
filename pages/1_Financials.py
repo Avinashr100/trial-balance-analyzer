@@ -128,7 +128,7 @@ def render_statement(title, sections):
     </style>
     {html_table}
     """
-    html(styled, height=600, scrolling=True)
+    html(styled, height=1500, scrolling=True)
 
 # ---- Render Statements ----
 render_statement("Balance Sheet", ["Assets", "Liabilities", "Equity"])
