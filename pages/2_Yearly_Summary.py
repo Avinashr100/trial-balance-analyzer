@@ -29,8 +29,63 @@ def compute_cash_flow_statement(df, current_period, previous_period, is_annual=F
     income_curr = calc_net_income(current)
     income_prev = calc_net_income(previous)
 
+    # --- Create Income Statement Table ---
+    def generate_income_statement():
+        rows = []
+        totals = {}
+        for section in ["Revenue", "Expense"]:
+            rows.append([f"<b>{section}</b>", "", "", "", ""])
+            curr_section = current[current["Account Type"] == section]
+            prev_section = previous[previous["Account Type"] == section]
+            names = sorted(set(curr_section["Account Name"]).union(set(prev_section["Account Name"])))
+            total_curr = total_prev = 0
+            for name in names:
+                curr_val = curr_section[curr_section["Account Name"] == name]
+                prev_val = prev_section[prev_section["Account Name"] == name]
+                curr_amt = curr_val["Credit"].sum() if section == "Revenue" else -curr_val["Debit"].sum()
+                prev_amt = prev_val["Credit"].sum() if section == "Revenue" else -prev_val["Debit"].sum()
+                change = curr_amt - prev_amt
+                pct = (change / prev_amt * 100) if prev_amt else 0
+                rows.append([
+                    name,
+                    format_inr(curr_amt),
+                    format_inr(prev_amt),
+                    format_inr(change),
+                    f"{pct:.1f}%"
+                ])
+                total_curr += curr_amt
+                total_prev += prev_amt
+            totals[section] = (total_curr, total_prev)
+            rows.append([
+                f"<b>Total {section}</b>",
+                f"<b>{format_inr(total_curr)}</b>",
+                f"<b>{format_inr(total_prev)}</b>",
+                f"<b>{format_inr(total_curr - total_prev)}</b>",
+                f"<b>{((total_curr - total_prev) / total_prev * 100):.1f}%</b>" if total_prev else ""
+            ])
+
+        net_curr = totals.get("Revenue", (0, 0))[0] - totals.get("Expense", (0, 0))[0]
+        net_prev = totals.get("Revenue", (0, 0))[1] - totals.get("Expense", (0, 0))[1]
+        chg = net_curr - net_prev
+        pct = (chg / net_prev * 100) if net_prev else 0
+
+        rows.append([
+            "<b>Net Income</b>",
+            f"<b>{format_inr(net_curr)}</b>",
+            f"<b>{format_inr(net_prev)}</b>",
+            f"<b>{format_inr(chg)}</b>",
+            f"<b>{pct:.1f}%</b>"
+        ])
+        return pd.DataFrame(rows, columns=[
+            "Account Name",
+            f"Amount ({label_current})",
+            f"Amount ({label_previous})",
+            "₹ Change",
+            "% Change"
+        ])
+
     def get_group(period_df, cash_type):
-        filtered = period_df[(period_df["Account Type"] == cash_type) & (period_df["Account Name"] != "Net Income")]
+        filtered = period_df[(period_df["Account Type"] == cash_type) & (~period_df["Account Name"].str.contains("Net Income", case=False, na=False))]
         grouped = (
             filtered.groupby("Account Name")
             .agg({"Debit": "sum", "Credit": "sum"})
@@ -117,12 +172,15 @@ def compute_cash_flow_statement(df, current_period, previous_period, is_annual=F
          f"{((end_cash_curr - end_cash_prev)/end_cash_prev*100):.1f}%" if end_cash_prev else ""]
     ]
 
-    full_table = net_income_row + ops_rows + inv_rows + fin_rows + net_row + end_rows
+    cash_flow_df = pd.DataFrame(net_income_row + ops_rows + inv_rows + fin_rows + net_row + end_rows,
+        columns=[
+            "Account Name",
+            f"Amount ({label_current})",
+            f"Amount ({label_previous})",
+            "₹ Change",
+            "% Change"]
+    )
 
-    return pd.DataFrame(full_table, columns=[
-        "Account Name",
-        f"Amount ({label_current})",
-        f"Amount ({label_previous})",
-        "₹ Change",
-        "% Change"
-    ])
+    income_statement_df = generate_income_statement()
+
+    return income_statement_df, cash_flow_df
