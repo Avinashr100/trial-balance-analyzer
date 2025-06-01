@@ -16,7 +16,7 @@ def generate_statement(df, month_col, section_order):
                                    merged["₹ Change"] / merged["Previous"] * 100, 0)
 
     rows = []
-    totals = {}  # Track totals for Revenue and Expenses
+    totals = {}
 
     for section in section_order:
         section_df = merged[merged["Account Category"] == section]
@@ -47,22 +47,21 @@ def generate_statement(df, month_col, section_order):
             f"<b>{(total_current - total_previous)/total_previous*100:.1f}%</b>" if total_previous else ""
         ])
 
-    # --- Add Net Income (Revenue - Expenses) ---
-    if "Revenue" in totals or "Expenses" in totals:
-        rev_curr, rev_prev = totals.get("Revenue", (0, 0))
-        exp_curr, exp_prev = totals.get("Expenses", (0, 0))
-        net_curr = rev_curr - exp_curr
-        net_prev = rev_prev - exp_prev
-        chg = net_curr - net_prev
-        pct = (chg / net_prev * 100) if net_prev else 0
+    # Always calculate Net Income
+    rev_curr, rev_prev = totals.get("Revenue", (0, 0))
+    exp_curr, exp_prev = totals.get("Expenses", (0, 0))
+    net_curr = rev_curr - exp_curr
+    net_prev = rev_prev - exp_prev
+    net_chg = net_curr - net_prev
+    net_pct = (net_chg / net_prev * 100) if net_prev else 0
 
-        rows.append([
-            "<b>Net Income</b>",
-            f"<b>{format_inr(net_curr)}</b>",
-            f"<b>{format_inr(net_prev)}</b>",
-            f"<b>{format_inr(chg)}</b>",
-            f"<b>{pct:.1f}%</b>"
-        ])
+    rows.append([
+        "<b>Net Income</b>",
+        f"<b>{format_inr(net_curr)}</b>",
+        f"<b>{format_inr(net_prev)}</b>",
+        f"<b>{format_inr(net_chg)}</b>",
+        f"<b>{net_pct:.1f}%</b>"
+    ])
 
     return pd.DataFrame(rows, columns=["Account Name",
                                        f"Amount ({month_label_current})",
