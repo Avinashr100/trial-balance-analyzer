@@ -9,7 +9,7 @@ def format_inr(x):
         return "₹0"
 
 
-def compute_cash_flow_statement(df, current_period, previous_period, is_annual=False):
+def compute_cash_flow_statement(df, current_period, previous_period, is_annual=true):
     if is_annual:
         df["Period"] = df["Date"].dt.year
         label_current = str(current_period)
