@@ -1,11 +1,13 @@
 import pandas as pd
 import numpy as np
 
+
 def format_inr(x):
     try:
         return f"₹{int(x):,}"
     except:
         return "₹0"
+
 
 def compute_cash_flow_statement(df, current_period, previous_period, is_annual=False):
     if is_annual:
@@ -82,7 +84,7 @@ def compute_cash_flow_statement(df, current_period, previous_period, is_annual=F
             f"Amount ({label_previous})",
             "₹ Change",
             "% Change"
-        ])
+        ]), net_curr, net_prev
 
     def get_group(period_df, cash_type):
         filtered = period_df[(period_df["Account Type"] == cash_type) & (~period_df["Account Name"].str.contains("Net Income", case=False, na=False))]
@@ -119,6 +121,8 @@ def compute_cash_flow_statement(df, current_period, previous_period, is_annual=F
             f"<b>{pct_total:.1f}%</b>"
         ])
         return rows, total_curr, total_prev
+
+    income_statement_df, income_curr, income_prev = generate_income_statement()
 
     net_income_row = [[
         "Net Income",
@@ -180,7 +184,5 @@ def compute_cash_flow_statement(df, current_period, previous_period, is_annual=F
             "₹ Change",
             "% Change"]
     )
-
-    income_statement_df = generate_income_statement()
 
     return income_statement_df, cash_flow_df
