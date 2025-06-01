@@ -7,26 +7,22 @@ def format_inr(x):
     except:
         return "₹0"
 
-def compute_cash_flow_statement(df, current_period, previous_period, is_annual=False):
+def compute_cash_flow_statement(df, current_period, previous_period, income_curr=None, income_prev=None, is_annual=False):
     if is_annual:
         df["Period"] = df["Date"].dt.year
         label_current = str(current_period)
         label_previous = str(previous_period)
     else:
         df["Period"] = df["Date"].dt.to_period("M")
-        label_current = pd.Timestamp(current_period.start_time).strftime('%B %Y')
-        label_previous = pd.Timestamp(previous_period.start_time).strftime('%B %Y')
+        label_current = pd.Timestamp(current_period.start_time).strftime('%b %Y')
+        label_previous = pd.Timestamp(previous_period.start_time).strftime('%b %Y')
 
-    current = df[df["Period"] == current_period].copy()
-    previous = df[df["Period"] == previous_period].copy()
+    current = df[df["Period"] == current_period]
+    previous = df[df["Period"] == previous_period]
 
-    # ----------------- Helper Functions -----------------
     def get_group(period_df, cash_type):
         return (
-            period_df[
-                (period_df["Account Type"] == cash_type) &
-                (~period_df["Account Name"].str.lower().str.contains("net income"))
-            ]
+            period_df[period_df["Account Type"] == cash_type]
             .groupby("Account Name")
             .agg({"Debit": "sum", "Credit": "sum"})
             .apply(lambda row: row["Debit"] - row["Credit"], axis=1)
@@ -40,7 +36,7 @@ def compute_cash_flow_statement(df, current_period, previous_period, is_annual=F
             val_curr = group_curr.get(acc, 0)
             val_prev = group_prev.get(acc, 0)
             chg = val_curr - val_prev
-            pct = (chg / val_prev * 100) if val_prev else 0
+            pct = (chg / val_prev * 100) if val_prev != 0 else 0
             rows.append([
                 acc,
                 format_inr(val_curr),
@@ -49,7 +45,7 @@ def compute_cash_flow_statement(df, current_period, previous_period, is_annual=F
                 f"{pct:.1f}%"
             ])
         chg_total = total_curr - total_prev
-        pct_total = (chg_total / total_prev * 100) if total_prev else 0
+        pct_total = (chg_total / total_prev * 100) if total_prev != 0 else 0
         rows.append([
             f"<b>Total {title}</b>",
             f"<b>{format_inr(total_curr)}</b>",
@@ -59,27 +55,24 @@ def compute_cash_flow_statement(df, current_period, previous_period, is_annual=F
         ])
         return rows, total_curr, total_prev
 
-    # ----------------- Net Income -----------------
-    revenue_curr = current[current["Account Type"] == "Revenue"].Credit.sum()
-    expense_curr = current[current["Account Type"] == "Expense"].Debit.sum()
-    income_curr = revenue_curr - expense_curr
-
-    revenue_prev = previous[previous["Account Type"] == "Revenue"].Credit.sum()
-    expense_prev = previous[previous["Account Type"] == "Expense"].Debit.sum()
-    income_prev = revenue_prev - expense_prev
-
-    income_chg = income_curr - income_prev
-    income_pct = (income_chg / income_prev * 100) if income_prev else 0
+    # If not passed, fallback to internal calculation
+    if income_curr is None:
+        revenue_curr = current[current["Account Type"] == "Revenue"].Credit.sum()
+        expense_curr = current[current["Account Type"] == "Expense"].Debit.sum()
+        income_curr = revenue_curr - expense_curr
+    if income_prev is None:
+        revenue_prev = previous[previous["Account Type"] == "Revenue"].Credit.sum()
+        expense_prev = previous[previous["Account Type"] == "Expense"].Debit.sum()
+        income_prev = revenue_prev - expense_prev
 
     net_income_row = [[
-        "<b>Net Income</b>",
-        f"<b>{format_inr(income_curr)}</b>",
-        f"<b>{format_inr(income_prev)}</b>",
-        f"<b>{format_inr(income_chg)}</b>",
-        f"<b>{income_pct:.1f}%</b>"
+        "Net Income",
+        format_inr(income_curr),
+        format_inr(income_prev),
+        format_inr(income_curr - income_prev),
+        f"{((income_curr - income_prev) / income_prev * 100):.1f}%" if income_prev else ""
     ]]
 
-    # ----------------- Cash Flow Sections -----------------
     ops_rows, ops_curr, ops_prev = add_rows("Operating Activities",
                                             get_group(current, "Cash Flow Operating"),
                                             get_group(previous, "Cash Flow Operating"))
@@ -90,23 +83,21 @@ def compute_cash_flow_statement(df, current_period, previous_period, is_annual=F
                                             get_group(current, "Cash Flow Financing"),
                                             get_group(previous, "Cash Flow Financing"))
 
-    # ----------------- Net Activities -----------------
     net_activities_curr = income_curr + ops_curr + inv_curr + fin_curr
     net_activities_prev = income_prev + ops_prev + inv_prev + fin_prev
     net_chg = net_activities_curr - net_activities_prev
     net_pct = (net_chg / net_activities_prev * 100) if net_activities_prev else 0
 
     net_row = [[
-        "<b>Net Activities</b>",
-        f"<b>{format_inr(net_activities_curr)}</b>",
-        f"<b>{format_inr(net_activities_prev)}</b>",
-        f"<b>{format_inr(net_chg)}</b>",
-        f"<b>{net_pct:.1f}%</b>"
+        "Net Activities",
+        format_inr(net_activities_curr),
+        format_inr(net_activities_prev),
+        format_inr(net_chg),
+        f"{net_pct:.1f}%"
     ]]
 
-    # ----------------- Beginning & Ending Cash -----------------
     def get_cash_balance(df_period):
-        cash_row = df_period[df_period["Account Name"].str.lower() == "cash at bank"]
+        cash_row = df_period[df_period["Account Name"] == "Cash at Bank"]
         debit = cash_row["Debit"].sum()
         credit = cash_row["Credit"].sum()
         return debit - credit
@@ -126,7 +117,6 @@ def compute_cash_flow_statement(df, current_period, previous_period, is_annual=F
          f"{((end_cash_curr - end_cash_prev)/end_cash_prev*100):.1f}%" if end_cash_prev else ""]
     ]
 
-    # ----------------- Final Output -----------------
     full_table = net_income_row + ops_rows + inv_rows + fin_rows + net_row + end_rows
 
     return pd.DataFrame(full_table, columns=[
