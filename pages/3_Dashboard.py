@@ -5,29 +5,30 @@ import matplotlib.pyplot as plt
 from utils.shared_formatting import load_trial_balance
 
 st.set_page_config(page_title="📊 Dashboard", layout="wide")
-st.title("📊 Rolling 15-Month Financial Dashboard")
+st.title("📊 Financial Dashboard")
 
 df = load_trial_balance()
-df["Month"] = df["Date"].dt.to_period("M").astype(str)
-df["YearMonth"] = pd.to_datetime(df["Date"]).dt.strftime("%b-%y")
+df["Month"] = df["Date"].dt.to_period("M")
+df["Month Label"] = df["Date"].dt.strftime('%b-%y')
 
 metrics = {
-    "Cash": ["Cash"],
+    "Cash": ["Cash", "Cash at Bank"],
     "Revenue": ["Service Revenue"],
     "Expenses": ["Salaries Expense"],
-    "Net Assets": ["Cash", "Accounts Receivable", "Investments", "Accounts Payable"],
+    "Net Assets": ["Asset", "Liability"],
     "Investments": ["Investments"]
 }
 
-month_range = df["YearMonth"].unique()[-15:]  # last 15 months
+df["Amount"] = df["Debit"] - df["Credit"]
 
-for i, (title, accounts) in enumerate(metrics.items()):
-    subset = df[df["Account Name"].isin(accounts)].copy()
-    grouped = subset.groupby("YearMonth").apply(lambda x: x["Debit"].sum() - x["Credit"].sum()).reindex(month_range).fillna(0)
-    plt.figure(figsize=(6, 3))
-    plt.plot(grouped.index, grouped.values, marker="o")
-    plt.title(f"{title} Over Time")
-    plt.xticks(rotation=45)
-    st.pyplot(plt)
-    if i % 2 == 1:
-        st.markdown("---")
+month_range = sorted(df["Month"].unique())[-15:]
+df = df[df["Month"].isin(month_range)]
+
+for metric, accounts in metrics.items():
+    fig, ax = plt.subplots(figsize=(6, 4))
+    plot_df = df[df["Account Name"].isin(accounts)]
+    plot_df = plot_df.groupby("Month Label")["Amount"].sum().reset_index()
+    ax.plot(plot_df["Month Label"], plot_df["Amount"])
+    ax.set_title(metric)
+    ax.tick_params(axis='x', rotation=45)
+    st.pyplot(fig)
