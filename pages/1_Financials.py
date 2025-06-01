@@ -152,10 +152,11 @@ def generate_income_statement(df, month_col):
             f"<b>{(total_current - total_previous)/total_previous*100:.1f}%</b>" if total_previous else ""
         ])
 
+    # Net Income
     rev_curr, rev_prev = totals.get("Revenue", (0, 0))
     exp_curr, exp_prev = totals.get("Expenses", (0, 0))
-    net_curr = float(rev_curr - exp_curr)
-    net_prev = float(rev_prev - exp_prev)
+    net_curr = rev_curr - exp_curr
+    net_prev = rev_prev - exp_prev
     chg = net_curr - net_prev
     pct = (chg / net_prev * 100) if net_prev else 0
 
@@ -213,7 +214,7 @@ render_statement("Income Statement", income_df)
 
 # ---------------- CASH FLOW ----------------
 st.markdown("### Cash Flow Statement")
-cf_df = compute_cash_flow_statement(df.copy(), current_month, previous_month, income_curr=net_income_current, income_prev=net_income_previous, is_annual=False)
+cf_df = compute_cash_flow_statement(df, current_month, previous_month, income_curr=net_income_current, income_prev=net_income_previous, is_annual=False)
 cf_html = cf_df.to_html(escape=False, index=False)
 cf_style = f"""
 <style>
