@@ -1,3 +1,4 @@
+
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -7,7 +8,6 @@ from utils.shared_formatting import (
     format_inr,
     format_percent,
     styled_table_html,
-    render_grouped_table,
     print_js_button
 )
 from utils.cashflow_logic import compute_cash_flow_statement
@@ -19,16 +19,16 @@ st.title("📘 Yearly Financial Summary")
 df = load_trial_balance()
 df["Year"] = df["Date"].dt.year
 
-# Map Account Type to Account Category (must match your trial balance)
+# Map Account Type to Account Category
 category_map = {
-    "Asset": "Assets",
-    "Liability": "Liabilities",
+    "Asset": "Asset",
+    "Liability": "Liability",
     "Equity": "Equity",
     "Revenue": "Revenue",
-    "Expense": "Expenses",
-    "Cash Flow Operating": "Operating Activities",
-    "Cash Flow Investing": "Investing Activities",
-    "Cash Flow Financing": "Financing Activities"
+    "Expense": "Expense",
+    "Cash Flow Operating": "Cash Flow Operating",
+    "Cash Flow Investing": "Cash Flow Investing",
+    "Cash Flow Financing": "Cash Flow Financing"
 }
 df["Account Category"] = df["Account Type"].map(category_map)
 
@@ -45,16 +45,12 @@ if not years_prev_options:
 year_previous = st.sidebar.selectbox("Select Previous Year", years_prev_options)
 
 def generate_grouped_summary(df, year_col, section_order):
-    """
-    For each section in section_order, calculate Current, Previous, ∆, %∆
-    and return an ordered DataFrame with bolded section headers and subtotals.
-    """
     df_curr = df[df[year_col] == year_current]
     df_prev = df[df[year_col] == year_previous]
 
-    def aggregate_amount(df_subset):
+    def aggregate(df_subset, types):
         g = (
-            df_subset
+            df_subset[df_subset["Account Category"].isin(types)]
             .groupby(["Account Category", "Account Name"])
             .agg({"Debit": "sum", "Credit": "sum"})
             .reset_index()
@@ -62,13 +58,11 @@ def generate_grouped_summary(df, year_col, section_order):
         g["Amount"] = g["Debit"] - g["Credit"]
         return g[["Account Category", "Account Name", "Amount"]]
 
-    curr_df = aggregate_amount(df_curr).rename(columns={"Amount": "Current"})
-    prev_df = aggregate_amount(df_prev).rename(columns={"Amount": "Previous"})
+    curr_df = aggregate(df_curr, section_order).rename(columns={"Amount": "Current"})
+    prev_df = aggregate(df_prev, section_order).rename(columns={"Amount": "Previous"})
 
     merged = (
-        pd.merge(curr_df, prev_df,
-                 on=["Account Category", "Account Name"],
-                 how="outer")
+        pd.merge(curr_df, prev_df, on=["Account Category", "Account Name"], how="outer")
         .fillna(0)
     )
     merged["₹ Change"] = merged["Current"] - merged["Previous"]
@@ -108,21 +102,11 @@ def generate_grouped_summary(df, year_col, section_order):
                 row["% Change"]
             ])
         # Subtotal
-        # Convert back to numeric to sum
-        total_curr = (
-            section_df[f"Amount ({year_current})"]
-            .str.replace("₹", "", regex=False)
-            .str.replace(",", "", regex=False)
-            .astype(int)
-            .sum()
-        )
-        total_prev = (
-            section_df[f"Amount ({year_previous})"]
-            .str.replace("₹", "", regex=False)
-            .str.replace(",", "", regex=False)
-            .astype(int)
-            .sum()
-        )
+        def to_num(s):
+            return int(s.replace("₹", "").replace(",", "")) if isinstance(s, str) and s.startswith("₹") else 0
+
+        total_curr = sum(section_df[f"Amount ({year_current})"].apply(to_num))
+        total_prev = sum(section_df[f"Amount ({year_previous})"].apply(to_num))
         diff = total_curr - total_prev
         pct = (diff / total_prev * 100) if total_prev != 0 else 0
         ordered_rows.append([
@@ -153,7 +137,6 @@ st.markdown(styled_table_html(df_pl), unsafe_allow_html=True)
 
 # Render Cash Flow Statement
 st.markdown("### 💰 Cash Flow Statement")
-# compute_cash_flow_statement signature: (df, current_period, previous_period, by="Year")
 cf_df = compute_cash_flow_statement(df, year_current, year_previous, by="Year")
 st.markdown(styled_table_html(cf_df), unsafe_allow_html=True)
 
