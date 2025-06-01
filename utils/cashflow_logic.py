@@ -55,16 +55,6 @@ def compute_cash_flow_statement(df, current_period, previous_period, income_curr
         ])
         return rows, total_curr, total_prev
 
-    # If not passed, fallback to internal calculation
-    if income_curr is None:
-        revenue_curr = current[current["Account Type"] == "Revenue"].Credit.sum()
-        expense_curr = current[current["Account Type"] == "Expense"].Debit.sum()
-        income_curr = revenue_curr - expense_curr
-    if income_prev is None:
-        revenue_prev = previous[previous["Account Type"] == "Revenue"].Credit.sum()
-        expense_prev = previous[previous["Account Type"] == "Expense"].Debit.sum()
-        income_prev = revenue_prev - expense_prev
-
     net_income_row = [[
         "Net Income",
         format_inr(income_curr),
