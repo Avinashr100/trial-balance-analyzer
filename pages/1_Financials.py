@@ -47,7 +47,7 @@ def generate_statement(df, month_col, section_order):
             f"<b>{(total_current - total_previous)/total_previous*100:.1f}%</b>" if total_previous else ""
         ])
 
-    # ✅ Add Net Income row
+    # ✅ Add Net Income row even if data is 0
     rev_curr, rev_prev = totals.get("Revenue", (0, 0))
     exp_curr, exp_prev = totals.get("Expenses", (0, 0))
     net_curr = rev_curr - exp_curr
@@ -67,3 +67,4 @@ def generate_statement(df, month_col, section_order):
                                        f"Amount ({month_label_current})",
                                        f"Amount ({month_label_previous})",
                                        "₹ Change", "% Change"])
+render_statement("Income Statement", ["Revenue", "Expenses"])
