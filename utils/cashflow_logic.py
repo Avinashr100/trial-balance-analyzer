@@ -8,7 +8,6 @@ def format_inr(x):
         return ""
 
 def compute_cash_flow_statement(df, current_period, previous_period, is_annual=False):
-    # Label formatting
     if is_annual:
         df["Period"] = df["Date"].dt.year
         label_current = str(current_period)
@@ -56,7 +55,7 @@ def compute_cash_flow_statement(df, current_period, previous_period, is_annual=F
         ])
         return rows, total_curr, total_prev
 
-    # Net Income Calculation
+    # Net Income
     income_curr = current[current["Account Type"] == "Revenue"].Debit.sum() - current[current["Account Type"] == "Expense"].Debit.sum()
     income_prev = previous[previous["Account Type"] == "Revenue"].Debit.sum() - previous[previous["Account Type"] == "Expense"].Debit.sum()
     net_income_row = [[
@@ -91,10 +90,18 @@ def compute_cash_flow_statement(df, current_period, previous_period, is_annual=F
         f"{net_pct:.1f}%"
     ]]
 
-    begin_cash_curr = net_activities_curr + 60000
-    begin_cash_prev = net_activities_prev + 60000
-    end_cash_curr = 60000
-    end_cash_prev = 60000
+    # --- New Dynamic Beginning and Ending Cash Logic ---
+    def get_cash_balance(df_period):
+        cash_row = df_period[(df_period["Account Name"] == "Cash at Bank")]
+        debit = cash_row["Debit"].sum()
+        credit = cash_row["Credit"].sum()
+        return debit - credit
+
+    begin_cash_curr = get_cash_balance(previous)
+    begin_cash_prev = get_cash_balance(df[df["Period"] == (previous_period - 1 if not is_annual else previous_period - 1)])
+
+    end_cash_curr = begin_cash_curr + net_activities_curr
+    end_cash_prev = begin_cash_prev + net_activities_prev
 
     end_rows = [
         ["Beginning Cash at Bank", format_inr(begin_cash_curr), format_inr(begin_cash_prev),
