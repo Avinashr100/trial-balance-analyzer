@@ -20,13 +20,16 @@ def compute_cash_flow_statement(df, current_period, previous_period, is_annual=F
     current = df[df["Period"] == current_period]
     previous = df[df["Period"] == previous_period]
 
-    def get_group(period_df, cash_type):
-        return (
-            period_df[period_df["Account Type"] == cash_type]
-            .groupby("Account Name")
-            .agg({"Debit": "sum", "Credit": "sum"})
-            .apply(lambda row: row["Debit"] - row["Credit"], axis=1)
-        )
+def get_group(period_df, cash_type):
+    return (
+        period_df[
+            (period_df["Account Type"] == cash_type) &
+            (~period_df["Account Name"].str.lower().str.contains("net income"))
+        ]
+        .groupby("Account Name")
+        .agg({"Debit": "sum", "Credit": "sum"})
+        .apply(lambda row: row["Debit"] - row["Credit"], axis=1)
+    )
 
     def add_rows(title, group_curr, group_prev):
         rows = [[f"<b>{title}</b>", "", "", "", ""]]
