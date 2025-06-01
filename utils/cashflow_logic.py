@@ -21,8 +21,9 @@ def compute_cash_flow_statement(df, current_period, previous_period, income_curr
     previous = df[df["Period"] == previous_period]
 
     def get_group(period_df, cash_type):
+        filtered = period_df[(period_df["Account Type"] == cash_type) & (period_df["Account Name"] != "Net Income")]
         return (
-            period_df[period_df["Account Type"] == cash_type]
+            filtered
             .groupby("Account Name")
             .agg({"Debit": "sum", "Credit": "sum"})
             .apply(lambda row: row["Debit"] - row["Credit"], axis=1)
