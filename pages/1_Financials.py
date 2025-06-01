@@ -2,6 +2,13 @@ def generate_statement(df, month_col, section_order):
     df_curr = df[df[month_col] == current_month]
     df_prev = df[df[month_col] == previous_month]
 
+    if df_curr.empty or df_prev.empty:
+        return pd.DataFrame([["No data available", "", "", "", ""]],
+                            columns=["Account Name",
+                                     f"Amount ({month_label_current})",
+                                     f"Amount ({month_label_previous})",
+                                     "₹ Change", "% Change"])
+
     curr = df_curr.groupby(["Account Category", "Account Name"]).agg({"Debit": "sum", "Credit": "sum"}).reset_index()
     curr["Current"] = curr["Debit"] - curr["Credit"]
 
