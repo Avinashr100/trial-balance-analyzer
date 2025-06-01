@@ -167,10 +167,11 @@ def generate_income_statement(df, month_col):
         f"<b>{pct:.1f}%</b>"
     ])
 
-    return pd.DataFrame(rows, columns=["Account Name",
-                                       f"Amount ({month_label_current})",
-                                       f"Amount ({month_label_previous})",
-                                       "₹ Change", "% Change"])
+    df_income = pd.DataFrame(rows, columns=["Account Name",
+                                            f"Amount ({month_label_current})",
+                                            f"Amount ({month_label_previous})",
+                                            "₹ Change", "% Change"])
+    return df_income, net_curr, net_prev
 
 # ---------------- RENDER TABLE ----------------
 def render_statement(title, df_table):
@@ -208,11 +209,12 @@ def render_statement(title, df_table):
 
 # ---------------- DISPLAY SECTIONS ----------------
 render_statement("Balance Sheet", generate_balance_statement(df, "Month", ["Assets", "Liabilities", "Equity"]))
-render_statement("Income Statement", generate_income_statement(df, "Month"))
+income_df, net_income_curr, net_income_prev = generate_income_statement(df, "Month")
+render_statement("Income Statement", income_df)
 
 # ---------------- CASH FLOW ----------------
 st.markdown("### Cash Flow Statement")
-cf_df = compute_cash_flow_statement(df, current_month, previous_month, is_annual=False)
+cf_df = compute_cash_flow_statement(df, current_month, previous_month, income_curr=net_income_curr, income_prev=net_income_prev, is_annual=False)
 cf_html = cf_df.to_html(escape=False, index=False)
 cf_style = f"""
 <style>
